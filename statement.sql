@@ -1,4 +1,4 @@
-CREATE PROCEDURE test @Period int, @Company uniqueidentifier, @OrgList varchar(8000)
+CREATE PROCEDURE ARAPTransactionsSP @Period int, @Company uniqueidentifier, @Branch uniqueidentifier, @OrgList varchar(8000)
 , @OrgGroupList varchar(8000), @BranchList varchar(8000), @CountryList varchar(8000),@ExCountryList varchar(8000),@SalesRepList varchar(8000), @OverLimitOnly Char(1)
 , @AgeingOption char(3), @Day1 int, @Day2 int, @Day3 int, @Day4 int, @AccountsRelationShip varchar(3)
 , @ConsolidatedCategory varchar(3), @SalesRepRoll varchar(8000), @SummaryOnly char(1), @LedgerType char(2)
@@ -784,10 +784,22 @@ END
 --------------------------------------------------------------------------------------------
 IF @FutureRECPAYNotInBalance = 'Y'
 BEGIN
-	UPDATE #TRANSACTIONS SET MatchedInFuturePeriodInLocalCurrency = (SELECT ISNULL(SUM(AP_Amount), 0) FROM AccTransactionMatchLink
-							WHERE AP_AH = TransactionPK AND AP_MatchGroupNum IN
-							(SELECT AP_MatchGroupNum FROM AccTransactionMatchLink LEFT JOIN AccTransactionHeader ON AP_AH = AH_PK
-							WHERE AH_TransactionType IN ('PAY','REC') AND AH_PostDate > @ReportDate))
+	UPDATE #TRANSACTIONS 
+		SET MatchedInFuturePeriodInLocalCurrency = (
+			SELECT ISNULL(SUM(AP_Amount), 0) 
+			FROM AccTransactionMatchLink
+			WHERE AP_AH = TransactionPK 
+			AND AP_MatchGroupNum IN (
+				SELECT AP_MatchGroupNum 
+				FROM AccTransactionMatchLink
+					LEFT JOIN AccTransactionHeader ON AP_AH = AH_PK
+				WHERE AH_TransactionType IN ('PAY','REC') 
+					AND AH_PostDate > @ReportDate
+					AND AH_GC = @Company
+				)
+			)
+	OPTION(RECOMPILE);
+
 	UPDATE #TRANSACTIONS SET MatchedInFuturePeriodInInvoiceCurrency = MatchedInFuturePeriodInLocalCurrency
 
 	IF @ExcludeMatchedToFutureRECPAY = 'Y'
@@ -916,7 +928,7 @@ LEFT JOIN AssignedStaff CUS ON TX.AccountPK = CUS.O8_OH AND CUS.O8_Role = 'CUS';
 -- UDPATE AdditionalCompanyName
 --------------------------------------------------------------------------------------------
 
-UPDATE #TRANSACTIONS SET AdditionalCompanyName = (SELECT CompanyName FROM dbo.GetAdditionalCompanyName(AccountPK, @Company, @LedgerType))
+UPDATE #TRANSACTIONS SET AdditionalCompanyName = (SELECT CompanyName FROM dbo.GetAdditionalCompanyName(AccountPK, @Company, @Branch, @LedgerType))
 
 --------------------------------------------------------------------------------------------
 -- UDPATE ContactName, ContactPhoneNo
@@ -1408,7 +1420,7 @@ BEGIN
 	END
 	ELSE IF @OrderBy = 'Invoice Date, Type then Transaction Number'
 	BEGIN
-		SELECT * FROM #TRANSACTIONS WHERE (@OverdueTransactions = 'N' OR  DueDate <= GETDATE()) ORDER BY (select convert(date, DueDate)), TransactionType, InvoiceRef
+		SELECT * FROM #TRANSACTIONS WHERE (@OverdueTransactions = 'N' OR  DueDate <= GETDATE()) ORDER BY (select convert(date, InvoiceDate)), TransactionType, InvoiceRef
 	END
 	ELSE IF @OrderBy = 'Transaction Type then Transaction Number'
 	BEGIN
